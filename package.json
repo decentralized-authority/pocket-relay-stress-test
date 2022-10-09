@@ -1,0 +1,43 @@
+{
+  "name": "pocket-relay-stress-test",
+  "version": "0.1.0",
+  "description": "pocket-relay-stress-test",
+  "main": "./lib/index.js",
+  "scripts": {
+    "start": "node ./lib/index.js",
+    "postinstall": "npm run build",
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decentralized-authority/pocket-relay-stress-test.git"
+  },
+  "author": "Ryan Burgett <ryan@burgettdev.net>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/decentralized-authority/pocket-relay-stress-test/issues"
+  },
+  "homepage": "https://github.com/decentralized-authority/pocket-relay-stress-test#readme",
+  "dependencies": {
+    "fs-extra": "^10.1.0",
+    "lodash": "^4.17.21",
+    "superagent": "^6.1.0",
+    "typescript": "4.3.4",
+    "winston": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/expect": "24.3.0",
+    "@types/fs-extra": "^9.0.13",
+    "@types/lodash": "^4.14.185",
+    "@types/mocha": "8.2.3",
+    "@types/node": "^17.0.21",
+    "@types/superagent": "4.1.13",
+    "@typescript-eslint/eslint-plugin": "4.33.0",
+    "@typescript-eslint/parser": "4.33.0",
+    "eslint": "^7.26.0",
+    "mocha": "^8.4.0",
+    "should": "^13.2.3",
+    "ts-mocha": "^8.0.0"
+  }
+}
