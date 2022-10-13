@@ -8,7 +8,6 @@ export class Runner {
   _chainId: string;
   _requests: RelayRequest[]
   _length: number;
-  _rps: number;
   _totalRequests: number;
 
   constructor(pocketUtils: PocketUtils, chainId: string, requests: RelayRequest[], length: number) {
@@ -17,28 +16,24 @@ export class Runner {
     this._requests = [...requests];
     this._length = length;
     this._totalRequests = requests.length;
-    this._rps = requests.length / (length * 60);
   }
 
   async start() {
     const responses: RelayResponse[] = [];
     await new Promise<void>(resolve => {
+      const interval = (this._length * 60) / this._totalRequests;
       const requestInterval = setInterval(async () => {
-        const currentRequests = this._requests.splice(0, this._rps);
-        const res = await Promise.all(currentRequests
-          .map(r => this._pocketUtils.postRelay(
-            this._chainId,
-            r
-          )));
-        for(const r of res) {
-          responses.push(r);
-        }
+        const [ currentRequest ] = this._requests.splice(0, 1);
+        if(!currentRequest)
+          return;
+        const res = await this._pocketUtils.postRelay(this._chainId, currentRequest);
+        responses.push(res);
         console.log(responses.length);
         if(responses.length === this._totalRequests) {
           clearInterval(requestInterval);
           resolve();
         }
-      }, 1000);
+      }, interval * 1000);
     });
     return responses
       .sort((a, b) => a.timestamp === b.timestamp ? 0 : a.timestamp > b.timestamp ? 1 : -1);

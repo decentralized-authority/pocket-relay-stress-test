@@ -33,8 +33,8 @@ const start = async function() {
 
   const chainId = '0021';
   const length = 1;
-  const totalRequests = 1800;
-  const instances = 5;
+  const totalRequests = 1200;
+  const instances = 2;
 
   let startingBlock: number;
 
