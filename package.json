@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/decentralized-authority/pocket-relay-stress-test#readme",
   "dependencies": {
+    "command-line-args": "^5.2.1",
     "fs-extra": "^10.1.0",
     "lodash": "^4.17.21",
     "superagent": "^6.1.0",
