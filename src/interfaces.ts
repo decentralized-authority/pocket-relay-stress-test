@@ -13,3 +13,8 @@ export interface RelayResponse {
   response: any
   error: Error|string|null
 }
+
+export interface ProcessMessage {
+  event: string
+  payload: any
+}

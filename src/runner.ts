@@ -18,17 +18,17 @@ export class Runner {
     this._totalRequests = requests.length;
   }
 
-  async start() {
+  async start(onResponse: (reponse: RelayResponse)=> void) {
     const responses: RelayResponse[] = [];
     await new Promise<void>(resolve => {
       const interval = (this._length * 60) / this._totalRequests;
       const requestInterval = setInterval(async () => {
         const [ currentRequest ] = this._requests.splice(0, 1);
-        if(!currentRequest)
-          return;
+        // if(!currentRequest)
+        //   return;
         const res = await this._pocketUtils.postRelay(this._chainId, currentRequest);
         responses.push(res);
-        console.log(responses.length);
+        onResponse(res);
         if(responses.length === this._totalRequests) {
           clearInterval(requestInterval);
           resolve();

@@ -22,7 +22,7 @@ fs.ensureDirSync(logDir);
 const errorLogFilePath = path.join(logDir, 'error.log');
 
 const errorLogger = winston.createLogger({
-  level: 'error',
+  level: 'info',
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.simple(),
