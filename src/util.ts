@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { isError, isString } from 'lodash';
+import { isError, isPlainObject, isString } from 'lodash';
 import winston from 'winston';
 import path from 'path';
 import fs from 'fs-extra';
@@ -43,8 +43,8 @@ export const logInfo = (message: string): void => {
 export const logError = (err: any): void => {
   if(isString(err)) {
     errorLogger.error(err);
-  } else if(isError(err)) {
-    errorLogger.error(`${err.message}\n${err.stack}`);
+  } else if(isError(err) || (err?.message && err?.stack)) {
+    errorLogger.error(`${err?.message}\n${err?.stack}`);
   } else {
     console.error(err);
   }

@@ -8,8 +8,9 @@ import path from 'path';
 import { messageEvent } from './constants';
 import colors from 'colors/safe';
 import { stdout as log } from 'single-line-log';
+import request from 'superagent';
 
-const startRunner = (endpoint: string, chainId: string, length: number, requests: RelayRequest[], onResponse: (response: RelayResponse)=>void): Promise<RelayResponse[]> => {
+const startRunner = (endpoint: string, chainId: string, length: number, requests: RelayRequest[], isChainEndpoint: boolean, onResponse: (response: RelayResponse)=>void, onError: (err: any)=>void): Promise<RelayResponse[]> => {
   return new Promise((resolve, reject) => {
     const instance = fork(path.join(__dirname, 'start-runner'));
     instance.on('message', message => {
@@ -19,12 +20,14 @@ const startRunner = (endpoint: string, chainId: string, length: number, requests
         instance.kill();
       } else if(event === messageEvent.RESPONSE) {
         onResponse(payload as RelayResponse);
+      } else if(event === messageEvent.ERROR) {
+        onError(payload);
       }
     });
     instance.on('error', reject);
     instance.send({
       event: messageEvent.REQUESTS,
-      payload: {endpoint, chainId, length, requests}
+      payload: {endpoint, chainId, length, requests, isChainEndpoint}
     });
   });
 };
@@ -32,15 +35,8 @@ const startRunner = (endpoint: string, chainId: string, length: number, requests
 const start = async function() {
 
   const {
-    PRST_POCKET_ENDPOINT: endpoint = 'http://localhost:8081',
-  //   PRST_INSTANCE_NUM = '1',
-  //   PRST_INSTANCE_RPS = '1',
-  //   PRST_CHAIN_ID = '0021'
-  //    PRST_CHAIN_ID = '0009'
+    ENDPOINT: endpoint = 'http://localhost:8081',
   } = process.env;
-  // const instanceNum = parseInt(PRST_INSTANCE_NUM);
-  // const rps = parseInt(PRST_INSTANCE_RPS);
-  // const chainId = PRST_CHAIN_ID;
 
   const chainId = '0021';
   const length = 1;
@@ -63,9 +59,30 @@ const start = async function() {
   const pocketUtils = new PocketUtils(endpoint, err => logError(err));
 
   const version = await pocketUtils.getVersion();
+  let isChainEndpoint = false;
 
-  if(!version)
-    throw new Error(`Unable to reach Pocket endpoint ${endpoint}`);
+  if(!version || !isString(version)) {
+    let body: any;
+    try {
+      const res = await request
+        .post(endpoint)
+        .type('application/json')
+        .timeout(10000)
+        .send({
+          id: getRandom(),
+          jsonrpc: '2.0',
+          method: 'net_version',
+          params: [],
+        });
+      body = res.body;
+    } catch(err) {
+      throw new Error(`Unable to reach endpoint ${endpoint}`);
+    }
+    if(body?.error) {
+      throw new Error(JSON.stringify(body.error));
+    }
+    isChainEndpoint = true;
+  }
 
   // const res = await pocketUtils.postRelay(
   //   chainId,
@@ -90,8 +107,8 @@ const start = async function() {
       data: JSON.stringify({
         id: getRandom(),
         jsonrpc: '2.0',
-        // method: 'eth_blockNumber',
-        method: 'net_version',
+        method: 'eth_blockNumber',
+        // method: 'net_version',
         params: [],
         // method: 'eth_getBlockByNumber',
         // params: ['0x' + (startingBlock - offset).toString(16), false],
@@ -123,7 +140,7 @@ const start = async function() {
   for(let i = 0; i < instances; i++) {
     const start = i * totalRequestsForRunner;
     const runnerRequests = allRequests.slice(start, start + totalRequestsForRunner);
-    runners.push(() => startRunner(endpoint, chainId, length, runnerRequests, onResponse));
+    runners.push(() => startRunner(endpoint, chainId, length, runnerRequests, isChainEndpoint, onResponse, err => logError(err)));
   }
 
   await Promise.all(runners.map(r => r()));
@@ -135,10 +152,10 @@ const start = async function() {
   // console.log(sortedResponses[Math.floor(sortedResponses.length / 2)]);
   // console.log(sortedResponses[sortedResponses.length - 1]);
 
-  const averageDuration = sortedResponses.reduce((sum, r) => sum + r.duration, 0) / sortedResponses.length;
-
   const successResponses = sortedResponses.filter(r => !r.error);
   const errorResponses = sortedResponses.filter(r => !!r.error);
+
+  const averageDuration = successResponses.reduce((sum, r) => sum + r.duration, 0) / successResponses.length;
 
   const durationColor = averageDuration < 100 ? colors.green : averageDuration < 1000 ? colors.yellow : colors.red;
 

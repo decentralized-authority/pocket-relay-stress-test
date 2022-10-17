@@ -1,5 +1,4 @@
 import { PocketUtils } from './pocket-utils';
-import { logError } from './util';
 import { ProcessMessage, RelayRequest, RelayResponse } from './interfaces';
 import { Runner } from './runner';
 import { messageEvent } from './constants';
@@ -11,12 +10,17 @@ let chainId = '';
 let requestsJson = '';
 let res = '';
 
+const logError = (err: any): void => {
+  if(process.send)
+    process.send({event: messageEvent.ERROR, payload: err});
+};
+
 process.on('message', message => {
   const { event, payload } = message as ProcessMessage;
   if(event === messageEvent.REQUESTS) {
-    const { endpoint, chainId, length, requests } = payload as {endpoint: string, chainId: string, length: number, requests: RelayRequest[]};
+    const { endpoint, chainId, length, requests, isChainEndpoint } = payload as {endpoint: string, chainId: string, length: number, requests: RelayRequest[], isChainEndpoint: boolean};
     const pocketUtils = new PocketUtils(endpoint, err => logError(err));
-    const runner = new Runner(pocketUtils, chainId, requests, length);
+    const runner = new Runner(pocketUtils, chainId, requests, length, isChainEndpoint, logError);
     const onResponse = (response: RelayResponse) => {
       if(process.send)
         process.send({event: messageEvent.RESPONSE, payload: response});

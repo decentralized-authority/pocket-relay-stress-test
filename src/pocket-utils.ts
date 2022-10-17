@@ -1,20 +1,22 @@
 import request from 'superagent';
 import { RelayResponse } from './interfaces';
+import { isPlainObject } from 'lodash';
 
 export class PocketUtils {
 
-  _endpoint: string;
+  endpoint: string;
   _logError: (err: any) => void;
 
   constructor(endpoint: string, logError: (err: any) => void) {
-    this._endpoint = endpoint;
+    this.endpoint = endpoint;
     this._logError = logError;
   }
 
-  async getVersion(): Promise<string> {
+  async getVersion(): Promise<any> {
     try {
       const { body } = await request
-        .get(`${this._endpoint}/v1`);
+        .get(`${this.endpoint}/v1`)
+        .timeout(10000);
       return body;
     } catch(err) {
       this._logError(err);
@@ -26,7 +28,7 @@ export class PocketUtils {
     const start = Date.now();
     try {
       const res = await request
-        .post(`${this._endpoint}/v1/client/sim`)
+        .post(`${this.endpoint}/v1/client/sim`)
         .type('application/json')
         .timeout(60000)
         .send({
@@ -46,6 +48,8 @@ export class PocketUtils {
         error: null,
       };
     } catch(err) {
+      if(err?.errno && err?.code && err?.syscall && err?.hostname)
+        err = JSON.stringify(err);
       const end = Date.now();
       this._logError(err);
       return {
