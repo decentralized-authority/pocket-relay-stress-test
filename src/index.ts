@@ -1,6 +1,6 @@
 import { PocketUtils } from './pocket-utils';
 import { isError, isString } from 'lodash';
-import { getRandom, getRandomInt, createErrorLogger, createLogger } from './util';
+import { getRandom, getRandomInt, createErrorLogger, createLogger, timeout } from './util';
 import { ProcessMessage, RelayRequest, RelayResponse } from './interfaces';
 import { fork } from 'child_process';
 import path from 'path';
@@ -10,13 +10,15 @@ import { stdout as log } from 'single-line-log';
 import request from 'superagent';
 import commandLineArgs from 'command-line-args';
 import fs from 'fs-extra';
+import Web3 from 'web3';
 
 const definitions = [
-  {name: 'endpoint', alias: 'e', type: String},
+  {name: 'endpoints', alias: 'e', type: String},
   {name: 'chain', alias: 'c', type: String},
   {name: 'instances', alias: 'i', type: Number},
   {name: 'requests', alias: 'r', type: Number},
   {name: 'duration', alias: 'd', type: Number},
+  {name: 'method', alias: 'm', type: String},
   {name: 'log-dir', type: String},
   {name: 'help', alias: 'h', type: Boolean},
   {name: 'version', alias: 'v', type: Boolean},
@@ -30,13 +32,14 @@ ${colors.bold('Pocket Relay Stress Tester')} v${version}
 ${colors.dim('Easily stress test Pocket nodes and Ethereum-based relay chains')}
 
 ${colors.bold('Required flags:')}
-  -e, --endpoint        ${colors.dim('URL endpoint of Pocket node with simulate relay enabled or Ethereum-based chain node e.g http://localhost:8081')}
+  -e, --endpoints        ${colors.dim('Comma-separated list of URL endpoints of Pocket nodes with simulate relay enabled or Ethereum-based chain nodes e.g http://localhost:8081')}
   -c, --chain           ${colors.dim('Relay chain id (https://docs.pokt.network/supported-blockchains)')}
 
 ${colors.bold('Optional flags:')}
   -i, --instances       ${colors.dim('Number of runner instances (processes) to divide requests among (default 5)')}
   -r, --requests        ${colors.dim('Total number of request to send (default 1800)')}
   -d, --duration        ${colors.dim('Total number of minutes to spread the requests over (default 1)')}
+  -m, --method          ${colors.dim('The RPC method to call on the chain node (default eth_getBlockByNumber)')}
   --log-dir             ${colors.dim('Directory to store logs (default $HOME/log)')}
 
 ${colors.bold('Other:')}
@@ -48,13 +51,15 @@ ${colors.bold('Other:')}
 const options = commandLineArgs(definitions, {stopAtFirstUnknown: true});
 
 const {
-  endpoint = '',
   chain = '',
   instances = 5,
   requests: totalRequests = 1800,
   duration = 1,
+  method = 'eth_getBlockByNumber',
   'log-dir': logDir = process.env.HOME ? path.join(process.env.HOME, 'log') : path.resolve(__dirname, '../log'),
 } = options;
+
+const endpointsStr = options.endpoints as string || '';
 
 if(options._unknown && options._unknown.length > 0) {
   console.log(`\nUnknown ${options._unknown.length > 1 ? 'options' : 'option'}`);
@@ -66,8 +71,8 @@ if(options._unknown && options._unknown.length > 0) {
 } else if(options.version) {
   console.log(version);
   process.exit();
-} else if(!endpoint) {
-  console.log('Missing required flag --endpoint');
+} else if(!endpointsStr) {
+  console.log('Missing required flag --endpoints');
   process.exit();
 } else if(!chain) {
   console.log('Missing required flag --chain');
@@ -114,27 +119,18 @@ const startRunner = (endpoint: string, chainId: string, length: number, requests
   });
 };
 
-const start = async function() {
+const allRequests: RelayRequest[] = [];
 
-  let startingBlock: number;
-
-  switch(chain) {
-    case '0021':
-      startingBlock = 15707838;
-      break;
-    // case '0009':
-    //   startingBlock = 34154363;
-    //   break;
-    default:
-      throw new Error(`Unsupported chain ID ${chain}`);
-  }
+const runTests = async function(endpoint: string) {
 
   const pocketUtils = new PocketUtils(endpoint, err => logError(err));
 
   const version = await pocketUtils.getVersion();
   let isChainEndpoint = false;
 
-  if(!version || !isString(version)) {
+  let startingBlock = 0;
+
+  if(!version || !isString(version)) { // is chain node endpoint
     let body: any;
     try {
       const res = await request
@@ -144,7 +140,7 @@ const start = async function() {
         .send({
           id: getRandom(),
           jsonrpc: '2.0',
-          method: 'net_version',
+          method: 'eth_blockNumber',
           params: [],
         });
       body = res.body;
@@ -154,30 +150,50 @@ const start = async function() {
     if(body?.error) {
       throw new Error(JSON.stringify(body.error));
     }
+    startingBlock = Web3.utils.hexToNumber(body.result) - 15000;
     isChainEndpoint = true;
+  } else if(method === 'eth_getBlockByNumber') { // is pocket node endpoint
+    const { response } = await pocketUtils.postRelay(
+      chain,
+      {
+        data: JSON.stringify({
+          id: getRandom(),
+          jsonrpc: '2.0',
+          method: 'eth_blockNumber',
+          params: [],
+        }),
+        method: 'POST',
+        path: '/',
+        headers: {}
+      }
+    );
+    startingBlock = Web3.utils.hexToNumber(response) - 15000;
   }
 
-  const allRequests: RelayRequest[] = [];
-
-  for(let i = 0; i < totalRequests; i++) {
-    const offset = getRandomInt(0, 2000);
-    allRequests.push({
-      data: JSON.stringify({
-        id: getRandom(),
-        jsonrpc: '2.0',
-        method: 'eth_blockNumber',
-        // method: 'net_version',
-        params: [],
-        // method: 'eth_getBlockByNumber',
-        // params: ['0x' + (startingBlock - offset).toString(16), false],
-      }),
-      method: 'POST',
-      path: '/',
-      headers: {},
-    });
+  if(allRequests.length === 0) {
+    for(let i = 0; i < totalRequests; i++) {
+      const offset = getRandomInt(0, 5000);
+      let params: any[] = [];
+      if(method === 'eth_getBlockByNumber') {
+        params = [Web3.utils.numberToHex(startingBlock - offset), false];
+      }
+      allRequests.push({
+        data: JSON.stringify({
+          id: getRandom(),
+          jsonrpc: '2.0',
+          method,
+          params,
+        }),
+        method: 'POST',
+        path: '/',
+        headers: {},
+      });
+    }
   }
 
   const allResponses: RelayResponse[] = [];
+
+  console.log('');
 
   let percentComplete = -1;
   const onResponse = (response: RelayResponse) => {
@@ -189,7 +205,7 @@ const start = async function() {
         percentStr = ' ' + percentStr;
       }
       percentComplete = percent;
-      log(`${percentStr}% ${colors.grey('complete')}`);
+      log(`${percentStr}% ${colors.dim('complete')}`);
     }
   };
 
@@ -206,6 +222,21 @@ const start = async function() {
   const sortedResponses: RelayResponse[] = allResponses
     .sort((a, b) => a.timestamp === b.timestamp ? 0 : a.timestamp > b.timestamp ? 1 : -1);
 
+  const sortedByDuration: RelayResponse[] = [...sortedResponses]
+    .sort((a, b) => a.duration === b.duration ? 0 : a.duration > b.duration ? 1 : -1);
+
+  const shortest = sortedByDuration[0];
+  const longest = sortedByDuration[sortedByDuration.length - 1];
+  const middle = (sortedByDuration.length / 2);
+  let median;
+  if(middle !== Math.floor(middle)) {
+    median = sortedByDuration[Math.floor(middle)].duration;
+  } else {
+    const idx0 = middle - 1;
+    const idx1 = idx0 + 1;
+    median = (sortedByDuration[idx0].duration + sortedByDuration[idx1].duration) / 2;
+  }
+
   // console.log(sortedResponses[0]);
   // console.log(sortedResponses[Math.floor(sortedResponses.length / 2)]);
   // console.log(sortedResponses[sortedResponses.length - 1]);
@@ -218,13 +249,32 @@ const start = async function() {
   const durationColor = averageDuration < 100 ? colors.green : averageDuration < 1000 ? colors.yellow : colors.red;
 
   console.log('\n');
-  console.log(`average duration:  ${durationColor(averageDuration.toFixed(3))}`);
-  console.log(` reqs per second:  ${instances * totalRequestsForRunner / (duration * 60)}`);
-  console.log(`  total requests:  ${sortedResponses.length}`);
-  console.log(`   success count:  ${colors.green(successResponses.length.toString(10))}`);
-  console.log(`     error count:  ${errorResponses.length > 0 ? colors.red(errorResponses.length.toString(10)) : errorResponses.length.toString(10)}`);
+  console.log(`         endpoint:  ${endpoint}`);
+  console.log(`           method:  ${method}`);
+  console.log(`  median duration:  ${durationColor(median.toFixed(3))}`);
+  console.log(` average duration:  ${durationColor(averageDuration.toFixed(3))}`);
+  console.log(`shortest duration:  ${durationColor(shortest.duration.toFixed(3))}`);
+  console.log(` longest duration:  ${durationColor(longest.duration.toFixed(3))}`);
+  console.log(`  reqs per second:  ${instances * totalRequestsForRunner / (duration * 60)}`);
+  console.log(`   total requests:  ${sortedResponses.length}`);
+  console.log(`    success count:  ${colors.green(successResponses.length.toString(10))}`);
+  console.log(`      error count:  ${errorResponses.length > 0 ? colors.red(errorResponses.length.toString(10)) : errorResponses.length.toString(10)}`);
 
 };
+
+const start = async function() {
+
+  const endpoints = endpointsStr
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => !!s);
+  for(let i = 0; i < endpoints.length; i++) {
+    const endpoint = endpoints[i];
+    await runTests(endpoint);
+    if(i < endpoints.length - 1)
+      await timeout(30000);
+  }
+}
 
 start()
   .catch(err => {

@@ -27,6 +27,7 @@
     "single-line-log": "^1.1.2",
     "superagent": "^6.1.0",
     "typescript": "4.3.4",
+    "web3": "^1.8.0",
     "winston": "^3.3.3"
   },
   "devDependencies": {
