@@ -1,14 +1,96 @@
 import { PocketUtils } from './pocket-utils';
 import { isError, isString } from 'lodash';
-import { getRandom, getRandomInt, logError } from './util';
+import { getRandom, getRandomInt, createErrorLogger, createLogger } from './util';
 import { ProcessMessage, RelayRequest, RelayResponse } from './interfaces';
-import { Runner } from './runner';
 import { fork } from 'child_process';
 import path from 'path';
 import { messageEvent } from './constants';
 import colors from 'colors/safe';
 import { stdout as log } from 'single-line-log';
 import request from 'superagent';
+import commandLineArgs from 'command-line-args';
+import fs from 'fs-extra';
+
+const definitions = [
+  {name: 'endpoint', alias: 'e', type: String},
+  {name: 'chain', alias: 'c', type: String},
+  {name: 'instances', alias: 'i', type: Number},
+  {name: 'requests', alias: 'r', type: Number},
+  {name: 'duration', alias: 'd', type: Number},
+  {name: 'log-dir', type: String},
+  {name: 'help', alias: 'h', type: Boolean},
+  {name: 'version', alias: 'v', type: Boolean},
+];
+
+const { version } = fs.readJsonSync(path.resolve(__dirname, '../package.json'));
+
+const logHelp = () => {
+  console.log(`
+${colors.bold('Pocket Relay Stress Tester')} v${version}
+${colors.dim('Easily stress test Pocket nodes and Ethereum-based relay chains')}
+
+${colors.bold('Required flags:')}
+  -e, --endpoint        ${colors.dim('URL endpoint of Pocket node with simulate relay enabled or Ethereum-based chain node e.g http://localhost:8081')}
+  -c, --chain           ${colors.dim('Relay chain id (https://docs.pokt.network/supported-blockchains)')}
+
+${colors.bold('Optional flags:')}
+  -i, --instances       ${colors.dim('Number of runner instances (processes) to divide requests among (default 5)')}
+  -r, --requests        ${colors.dim('Total number of request to send (default 1800)')}
+  -d, --duration        ${colors.dim('Total number of minutes to spread the requests over (default 1)')}
+  --log-dir             ${colors.dim('Directory to store logs (default $HOME/log)')}
+
+${colors.bold('Other:')}
+  -h, --help            ${colors.dim('Show CLI help')}
+  -v, --version         ${colors.dim('Show version')}
+`);
+};
+
+const options = commandLineArgs(definitions, {stopAtFirstUnknown: true});
+
+const {
+  endpoint = '',
+  chain = '',
+  instances = 5,
+  requests: totalRequests = 1800,
+  duration = 1,
+  'log-dir': logDir = process.env.HOME ? path.join(process.env.HOME, 'log') : path.resolve(__dirname, '../log'),
+} = options;
+
+if(options._unknown && options._unknown.length > 0) {
+  console.log(`\nUnknown ${options._unknown.length > 1 ? 'options' : 'option'}`);
+  logHelp();
+  process.exit();
+} else if(options.help) {
+  logHelp();
+  process.exit();
+} else if(options.version) {
+  console.log(version);
+  process.exit();
+} else if(!endpoint) {
+  console.log('Missing required flag --endpoint');
+  process.exit();
+} else if(!chain) {
+  console.log('Missing required flag --chain');
+  process.exit();
+}
+
+fs.ensureDirSync(logDir);
+
+const logger = createLogger();
+const logInfo = (message: string): void => {
+  logger.info(message);
+};
+
+const errorLogger = createErrorLogger(logDir);
+const logError = (err: any): void => {
+  if(isString(err)) {
+    errorLogger.error(err);
+  } else if(isError(err) || (err?.message && err?.stack)) {
+    errorLogger.error(`${err?.message}\n${err?.stack}`);
+  } else {
+    console.error(err);
+  }
+};
 
 const startRunner = (endpoint: string, chainId: string, length: number, requests: RelayRequest[], isChainEndpoint: boolean, onResponse: (response: RelayResponse)=>void, onError: (err: any)=>void): Promise<RelayResponse[]> => {
   return new Promise((resolve, reject) => {
@@ -34,18 +116,18 @@ const startRunner = (endpoint: string, chainId: string, length: number, requests
 
 const start = async function() {
 
-  const {
-    ENDPOINT: endpoint = 'http://localhost:8081',
-  } = process.env;
-
-  const chainId = '0021';
-  const length = 1;
-  const totalRequests = 60;
-  const instances = 1;
+  // const {
+  //   ENDPOINT: endpoint = 'http://localhost:8081',
+  // } = process.env;
+  //
+  // const chainId = '0021';
+  // const length = 5;
+  // const totalRequests = 1800 * 5;
+  // const instances = 5;
 
   let startingBlock: number;
 
-  switch(chainId) {
+  switch(chain) {
     case '0021':
       startingBlock = 15707838;
       break;
@@ -53,7 +135,7 @@ const start = async function() {
     //   startingBlock = 34154363;
     //   break;
     default:
-      throw new Error(`Unsupported chain ID ${chainId}`);
+      throw new Error(`Unsupported chain ID ${chain}`);
   }
 
   const pocketUtils = new PocketUtils(endpoint, err => logError(err));
@@ -102,7 +184,7 @@ const start = async function() {
   const allRequests: RelayRequest[] = [];
 
   for(let i = 0; i < totalRequests; i++) {
-    const offset = getRandomInt(0, 1000);
+    const offset = getRandomInt(0, 2000);
     allRequests.push({
       data: JSON.stringify({
         id: getRandom(),
@@ -140,7 +222,7 @@ const start = async function() {
   for(let i = 0; i < instances; i++) {
     const start = i * totalRequestsForRunner;
     const runnerRequests = allRequests.slice(start, start + totalRequestsForRunner);
-    runners.push(() => startRunner(endpoint, chainId, length, runnerRequests, isChainEndpoint, onResponse, err => logError(err)));
+    runners.push(() => startRunner(endpoint, chain, duration, runnerRequests, isChainEndpoint, onResponse, err => logError(err)));
   }
 
   await Promise.all(runners.map(r => r()));
@@ -161,7 +243,7 @@ const start = async function() {
 
   console.log('\n');
   console.log(`average duration:  ${durationColor(averageDuration.toFixed(3))}`);
-  console.log(` reqs per second:  ${instances * totalRequestsForRunner / (length * 60)}`);
+  console.log(` reqs per second:  ${instances * totalRequestsForRunner / (duration * 60)}`);
   console.log(`  total requests:  ${sortedResponses.length}`);
   console.log(`   success count:  ${colors.green(successResponses.length.toString(10))}`);
   console.log(`     error count:  ${errorResponses.length > 0 ? colors.red(errorResponses.length.toString(10)) : errorResponses.length.toString(10)}`);

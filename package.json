@@ -30,6 +30,7 @@
     "winston": "^3.3.3"
   },
   "devDependencies": {
+    "@types/command-line-args": "^5.2.0",
     "@types/expect": "24.3.0",
     "@types/fs-extra": "^9.0.13",
     "@types/lodash": "^4.14.185",
