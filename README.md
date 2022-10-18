@@ -1,7 +1,24 @@
 # Pocket Relay Stress Test
 Easily stress test Pocket nodes and Ethereum-based relay chains
 
-## Usage
+## Build from source
+
+### Install dependencies
+```
+npm install
+```
+
+### Build
+```
+npm run build
+```
+
+### Run
+```
+./lib/index --help
+```
+
+## Docker Usage
 
 ### Test a node
 ```
