@@ -116,15 +116,6 @@ const startRunner = (endpoint: string, chainId: string, length: number, requests
 
 const start = async function() {
 
-  // const {
-  //   ENDPOINT: endpoint = 'http://localhost:8081',
-  // } = process.env;
-  //
-  // const chainId = '0021';
-  // const length = 5;
-  // const totalRequests = 1800 * 5;
-  // const instances = 5;
-
   let startingBlock: number;
 
   switch(chain) {
@@ -165,21 +156,6 @@ const start = async function() {
     }
     isChainEndpoint = true;
   }
-
-  // const res = await pocketUtils.postRelay(
-  //   chainId,
-  //   {
-  //     data: JSON.stringify({
-  //       id: getRandom(),
-  //       jsonrpc: '2.0',
-  //       method: 'eth_getBlockByNumber',
-  //       params: [15707838, false]
-  //     }),
-  //     method: 'POST',
-  //     path: '/',
-  //     headers: {}
-  //   }
-  // );
 
   const allRequests: RelayRequest[] = [];
 
