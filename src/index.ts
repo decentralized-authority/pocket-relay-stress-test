@@ -172,7 +172,9 @@ const runTests = async function(endpoint: string) {
 
   if(allRequests.length === 0) {
     for(let i = 0; i < totalRequests; i++) {
-      const offset = getRandomInt(0, 5000);
+      const diff = startingBlock - totalRequests;
+      const max = diff > 1 ? totalRequests : startingBlock - 1;
+      const offset = getRandomInt(0, max);
       let params: any[] = [];
       if(method === 'eth_getBlockByNumber') {
         params = [Web3.utils.numberToHex(startingBlock - offset), false];
